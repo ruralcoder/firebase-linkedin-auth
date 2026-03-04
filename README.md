@@ -1,55 +1,76 @@
-# Use LinkedIn Sign In with Firebase
+# Sign In with LinkedIn using Firebase
 
-This sample shows how to authenticate using LinkedIn Sign-In on Firebase. In this sample we use OAuth 2.0 based authentication to get LinkedIn user information then create a Firebase Custom Token (using the LinkedIn user ID).
+Authenticate users with LinkedIn Sign-In via Firebase Custom Auth tokens. Uses LinkedIn's OpenID Connect (OIDC) flow and Firebase Functions v2.
 
+## Prerequisites
 
-## Setup the sample
+- Node.js 20+
+- Firebase CLI (`npm install -g firebase-tools`)
+- Firebase project on the **Blaze** plan (required for outbound HTTP requests)
 
-Create and setup the Firebase project:
- 1. Create a Firebase project using the [Firebase Developer Console](https://console.firebase.google.com).
- 1. Enable Billing on your Firebase the project by switching to the **Blaze** plan, this is currently needed to be able to perform HTTP requests to external services from a Cloud Function.
+## Setup
 
-Create and provide a Service Account's credentials:
- 1. Create a Service Accounts file as described in the [Server SDK setup instructions](https://firebase.google.com/docs/server/setup#add_firebase_to_your_app).
- 1. Save the Service Account credential file as `./functions/service-account.json`
+### 1. Firebase Project
 
-Create and setup your LinkedIn app:
- 1. Create a LinkedIn app in the [LinkedIn Developers website](https://www.linkedin.com/developer/apps/).
- 1. Add the URL `https://<application-id>.firebaseapp.com/popup.html` to the
-    **OAuth 2.0** > **Authorized Redirect URLs** of your LinkedIn app.
- 1. Copy the **Client ID** and **Client Secret** of your LinkedIn app and use them to set the `linkedin.client_id` and `linkedin.client_secret` Google Cloud environment variables. For this use:
+1. Create a project in the [Firebase Console](https://console.firebase.google.com)
+2. Enable **Realtime Database** and **Authentication**
 
-    ```bash
-    firebase functions:config:set linkedin.client_id="yourClientID" linkedin.client_secret="yourClientSecret"
-    ```
+### 2. Service Account
 
- > Make sure the LinkedIn Client Secret is always kept secret. For instance do not save this in your version control system.
+1. Go to **Project Settings > Service Accounts** in the Firebase Console
+2. Click **Generate new private key**
+3. Save the file as `./functions/service-account.json`
 
-Deploy your project:
- 1. Run `firebase use --add` and choose your Firebase project. This will configure the Firebase CLI to use the correct project locally.
- 1. Run `firebase deploy` to effectively deploy the sample. The first time the Functions are deployed the process can take several minutes.
+### 3. LinkedIn App
 
+1. Create an app at [LinkedIn Developers](https://www.linkedin.com/developers/apps/)
+2. Under **Products**, enable **Sign In with LinkedIn using OpenID Connect**
+3. Under **Auth > OAuth 2.0 settings**, add the authorized redirect URL:
+   ```
+   https://<your-project-id>.firebaseapp.com/popup.html
+   ```
 
-## Run the sample
+### 4. Configure Credentials
 
-Open the sample's website by using `firebase open hosting:site` or directly accessing `https://<project-id>.firebaseapp.com/`.
+Copy the example env file and fill in your LinkedIn app credentials:
 
-Click on the **Sign in with LinkedIn** button and a popup window will appear that will show the LinkedIn authentication consent screen. Sign In and/or authorize the authentication request.
+```bash
+cp functions/.env.example functions/.env
+```
 
-The website should display your name, email and profile pic from LinkedIn. At this point you are authenticated in Firebase and can use the database/hosting etc...
+Edit `functions/.env`:
+```
+LINKEDIN_CLIENT_ID=your_client_id
+LINKEDIN_CLIENT_SECRET=your_client_secret
+```
 
-## Workflow and design
+> The `.env` file is gitignored. Never commit your client secret.
 
-When clicking the **Sign in with LinkedIn** button a popup is shown which redirects users to the `redirect` Function URL.
+### 5. Deploy
 
-The `redirect` Function then redirects the user to the LinkedIn OAuth 2.0 consent screen where (the first time only) the user will have to grant approval. Also the `state` cookie is set on the client with the value of the `state` URL query parameter to check against later on.
+```bash
+firebase use --add  # select your project
+cd functions && npm install
+cd ..
+firebase deploy
+```
 
-After the user has granted approval he is redirected back to the `./popup.html` page along with an OAuth 2.0 Auth Code as a URL parameter. This Auth code is then sent to the `token` Function using a JSONP Request. The `token` function then:
- - Checks that the value of the `state` URL query parameter is the same as the one in the `state` cookie.
- - Exchanges the auth code for an access token using the LinkedIn app credentials.
- - Fetches the user identity using the LinkedIn API.
- - Mints a Custom Auth token (which is why we need Service Accounts Credentials).
- - Returns the Custom Auth Token, email, photo URL, user display name and LinkedIn access token to the `./popup.html` page.
+## Usage
 
-  The `./popup.html` receives the Custom Auth Token and other data back from the AJAX request to the `token` Function and uses it to update the user's profile, saves the access token to the database, authenticate the user in Firebase and then close the popup.
- At this point the main page will detect the sign-in through the Firebase Auth State observer and display the signed-In user information.
+Open `https://<your-project-id>.firebaseapp.com/` and click **Sign in with LinkedIn**.
+
+## How It Works
+
+1. User clicks sign-in, opening `popup.html`
+2. `popup.html` redirects to the `redirect` Cloud Function
+3. The function sets a `state` cookie (CSRF protection) and redirects to LinkedIn's OAuth consent screen
+4. LinkedIn redirects back to `popup.html` with an auth code
+5. `popup.html` calls the `token` Cloud Function via JSONP
+6. The `token` function:
+   - Validates the `state` cookie against the query parameter
+   - Exchanges the auth code for an access token
+   - Fetches the user profile from LinkedIn's OIDC `userinfo` endpoint
+   - Creates/updates a Firebase Auth user
+   - Returns a Firebase Custom Auth token
+7. `popup.html` signs into Firebase with the custom token and closes
+8. The main page detects the auth state change and displays user info
